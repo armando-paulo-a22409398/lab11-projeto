@@ -2,288 +2,179 @@
 
 import React, { useState, useEffect } from 'react';
 import useSWR from 'swr';
+import Image from 'next/image';
 import { Produto } from '@/models/interfaces';
 import ProdutoCard from '@/components/ProdutoCard/ProdutoCard';
-import Image from 'next/image';
+// 1. Importar o Hook do Contexto
+import { useCart } from '@/context/CartContext'; 
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
-// Nova interface para itens do carrinho com quantidade
-interface CartItem {
-    product: Produto;
-    quantity: number;
-}
-
 export default function ProdutosPage() {
-    const { data, error, isLoading } = useSWR<Produto[]>(
-        'https://deisishop.pythonanywhere.com/products', 
-        fetcher
-    );
+    // Buscar produtos à API
+    const { data, error, isLoading } = useSWR<Produto[]>('https://deisishop.pythonanywhere.com/products', fetcher);
+    
+    // 2. USAR O ESTADO GLOBAL (Isto resolve o teu problema!)
+    // Em vez de useState local, lemos diretamente do Cérebro da App
+    const { cart, addToCart, removeFromCart, totalCost, buy } = useCart();
 
+    // Estados locais (apenas para filtros e UI, estes podem reiniciar sem problema)
     const [search, setSearch] = useState('');
     const [sort, setSort] = useState('');
     const [filteredData, setFilteredData] = useState<Produto[]>([]);
     
-    // O carrinho agora guarda CartItem[] (produto + quantidade)
-    const [cart, setCart] = useState<CartItem[]>([]);
-
-    // Estados para o Checkout
+    // Estados do Checkout
     const [isStudent, setIsStudent] = useState(false);
     const [coupon, setCoupon] = useState('');
     const [purchaseMessage, setPurchaseMessage] = useState('');
 
-    // Carregar carrinho
+    // Efeito para Filtros e Ordenação
     useEffect(() => {
-        const savedCart = localStorage.getItem('cart');
-        if (savedCart) {
-            try {
-                const parsed = JSON.parse(savedCart);
-                // Migração: Se o carrinho antigo era array de produtos, converter para CartItem
-                if (Array.isArray(parsed)) {
-                    if (parsed.length > 0 && !parsed[0].quantity) {
-                        const migrated = parsed.map((p: Produto) => ({ product: p, quantity: 1 }));
-                        setCart(migrated);
-                    } else {
-                        setCart(parsed);
-                    }
-                }
-            } catch (e) {
-                console.error("Erro ao carregar carrinho", e);
-            }
-        }
-    }, []);
+        if (!data) return;
+        let newFilteredData = [...data];
 
-    // Guardar carrinho
-    useEffect(() => {
-        localStorage.setItem('cart', JSON.stringify(cart));
-    }, [cart]);
-
-    // Filtragem e Ordenação
-    useEffect(() => {
-        if (data) {
-            let result = data.filter(produto => 
-                produto.title.toLowerCase().includes(search.toLowerCase())
+        // Filtrar
+        if (search) {
+            newFilteredData = newFilteredData.filter(produto =>
+                produto.title.toLowerCase().includes(search.toLowerCase()) ||
+                produto.category.toLowerCase().includes(search.toLowerCase())
             );
-
-            if (sort === 'price-asc') {
-                result.sort((a, b) => a.price - b.price);
-            } else if (sort === 'price-desc') {
-                result.sort((a, b) => b.price - a.price);
-            } else if (sort === 'name-asc') {
-                result.sort((a, b) => a.title.localeCompare(b.title));
-            } else if (sort === 'name-desc') {
-                result.sort((a, b) => b.title.localeCompare(a.title));
-            }
-
-            setFilteredData(result);
         }
-    }, [search, sort, data]);
 
-    // Adicionar produto (incrementa quantidade se já existir)
-    const addToCart = (produto: Produto) => {
-        setCart((prevCart) => {
-            const existing = prevCart.find(item => item.product.id === produto.id);
-            if (existing) {
-                return prevCart.map(item => 
-                    item.product.id === produto.id 
-                        ? { ...item, quantity: item.quantity + 1 }
-                        : item
-                );
-            }
-            return [...prevCart, { product: produto, quantity: 1 }];
-        });
-    };
+        // Ordenar
+        if (sort === 'az') newFilteredData.sort((a, b) => a.title.localeCompare(b.title));
+        else if (sort === 'za') newFilteredData.sort((a, b) => b.title.localeCompare(a.title));
+        else if (sort === 'priceAsc') newFilteredData.sort((a, b) => a.price - b.price);
+        else if (sort === 'priceDesc') newFilteredData.sort((a, b) => b.price - a.price);
 
-    // Remover produto completamente
-    const removeFromCart = (productId: number) => {
-        setCart((prevCart) => prevCart.filter(item => item.product.id !== productId));
-    };
+        setFilteredData(newFilteredData);
+    }, [data, search, sort]);
 
-    // Atualizar quantidade (+/-)
-    const updateQuantity = (productId: number, delta: number) => {
-        setCart((prevCart) => prevCart.map(item => {
-            if (item.product.id === productId) {
-                const newQty = item.quantity + delta;
-                return newQty > 0 ? { ...item, quantity: newQty } : item;
-            }
-            return item;
-        }));
-    };
-
-    // Função de Compra
     const handleBuy = async () => {
         try {
-            const response = await fetch('https://deisishop.pythonanywhere.com/buy', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    // Envia IDs repetidos conforme a quantidade (ex: 2 t-shirts = envia ID 2 vezes)
-                    products: cart.flatMap(item => Array(item.quantity).fill(item.product.id)),
-                    student: isStudent,
-                    coupon: coupon
-                })
-            });
-
-            const result = await response.json();
-
-            if (response.ok) {
-                setPurchaseMessage(`Sucesso! Referência: ${result.reference} | Total: ${result.totalCost}€`);
-                setCart([]); 
-                localStorage.setItem('cart', '[]');
-            } else {
-                setPurchaseMessage(`Erro: ${result.error}`);
-            }
-
-        } catch (error) {
-            console.error("Erro na compra:", error);
-            setPurchaseMessage("Ocorreu um erro ao comunicar com o servidor.");
+            const result = await buy(isStudent, coupon);
+            setPurchaseMessage(`Sucesso! Ref: ${result.reference}, Total: ${result.totalCost}€`);
+        } catch (error: any) {
+            setPurchaseMessage(`Erro: ${error.message}`);
         }
     };
 
-    // CORREÇÃO DO ERRO: Garantir que preço e quantidade são números
-    const totalCost = cart.reduce((total, item) => total + (Number(item.product.price) * item.quantity), 0);
-
-    if (error) return <div>Erro ao carregar</div>;
-    if (isLoading) return <div>A carregar...</div>;
+    if (error) return <div className="text-red-500 font-bold p-10 text-center">Erro ao carregar os produtos.</div>;
+    if (isLoading) return (
+        <div className="flex flex-col items-center justify-center min-h-[50vh]">
+            <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+            <p className="text-blue-600 font-medium">A carregar catálogo...</p>
+        </div>
+    );
 
     return (
-        <main className="container mx-auto p-6 min-h-screen">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2 text-center">DEISI Shop</h1>
-            <p className="text-center text-gray-500 mb-8">Os melhores produtos tecnológicos ao teu alcance.</p>
+        <main className="container mx-auto p-4 md:p-6">
+            <h1 className="text-3xl font-bold text-gray-800 mb-8 border-b pb-4">Loja Online</h1>
 
-            <div className="flex flex-col lg:flex-row gap-8">
+            <div className="flex flex-col lg:flex-row gap-8 items-start">
                 
-                {/* Coluna da Loja */}
-                <div className="flex-grow">
-                    <div className="mb-6 flex flex-col sm:flex-row gap-4">
-                        <input
-                            type="text"
-                            placeholder="Pesquisar..."
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            className="flex-grow px-4 py-2 border border-gray-300 rounded-lg"
-                        />
-                        <select 
+                {/* --- LISTA DE PRODUTOS --- */}
+                <div className="flex-grow w-full space-y-6">
+                    
+                    {/* Barra de Filtros */}
+                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-4 sticky top-4 z-10 backdrop-blur-md bg-white/90">
+                        <div className="relative flex-grow">
+                            <input
+                                type="text"
+                                placeholder="Pesquisar produtos..."
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                            />
+                            <svg className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        </div>
+
+                        <select
                             value={sort}
                             onChange={(e) => setSort(e.target.value)}
-                            className="px-4 py-2 border border-gray-300 rounded-lg bg-white"
+                            className="w-full md:w-48 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                         >
-                            <option value="">Sem ordenação</option>
-                            <option value="name-asc">Nome (A-Z)</option>
-                            <option value="name-desc">Nome (Z-A)</option>
-                            <option value="price-asc">Preço (Crescente)</option>
-                            <option value="price-desc">Preço (Decrescente)</option>
+                            <option value="">Ordenar por...</option>
+                            <option value="az">Nome (A-Z)</option>
+                            <option value="za">Nome (Z-A)</option>
+                            <option value="priceAsc">Preço (Crescente)</option>
+                            <option value="priceDesc">Preço (Decrescente)</option>
                         </select>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+                    {/* Grid de Produtos */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                         {filteredData.map((produto) => (
-                            <ProdutoCard 
-                                key={produto.id} 
-                                produto={produto} 
-                                onAddToCart={addToCart} 
-                            />
+                            <div key={produto.id} className="h-full">
+                                <ProdutoCard 
+                                    produto={produto} 
+                                    onAddToCart={() => addToCart(produto)} // Função global
+                                />
+                            </div>
                         ))}
                     </div>
                 </div>
 
-                {/* Coluna do Carrinho (Sidebar Atualizada com Quantidades) */}
-                <aside className="lg:w-96 flex-shrink-0">
-                    <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 sticky top-4">
-                        <h2 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">Carrinho</h2>
-                        
-                        {cart.length === 0 ? (
-                            <p className="text-gray-500 text-center py-4">O carrinho está vazio.</p>
-                        ) : (
-                            <div className="flex flex-col gap-4 max-h-[50vh] overflow-y-auto mb-4 custom-scrollbar pr-2">
-                                {cart.map((item, index) => (
-                                    <div key={index} className="flex gap-3 items-center bg-gray-50 p-3 rounded-lg border border-gray-100">
-                                        {/* Imagem */}
-                                        <div className="relative w-16 h-16 bg-white rounded-md border border-gray-200 flex-shrink-0">
+                {/* --- SIDEBAR CARRINHO (Sincronizado com Contexto) --- */}
+                <aside className="w-full lg:w-96 flex-shrink-0">
+                    <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden sticky top-4">
+                        <div className="bg-gray-50 p-4 border-b border-gray-100 flex justify-between items-center">
+                            <h2 className="font-bold text-gray-800 flex items-center gap-2">
+                                🛒 Carrinho
+                            </h2>
+                            <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full">
+                                {/* O reduce agora lê do Contexto, que persiste entre páginas */}
+                                {cart.reduce((acc, item) => acc + item.quantity, 0)} itens
+                            </span>
+                        </div>
+
+                        <div className="p-4 max-h-[400px] overflow-y-auto space-y-3">
+                            {cart.length === 0 ? (
+                                <p className="text-gray-400 text-center py-8 text-sm">O seu carrinho está vazio.</p>
+                            ) : (
+                                cart.map((item) => (
+                                    <div key={item.product.id} className="flex gap-3 items-center bg-gray-50 p-2 rounded-lg group">
+                                        <div className="relative w-12 h-12 flex-shrink-0 bg-white rounded border border-gray-200 p-1">
                                             <Image 
-                                                src={item.product.image.startsWith('http') ? item.product.image : 'https://deisishop.pythonanywhere.com' + item.product.image}
+                                                src={'https://deisishop.pythonanywhere.com' + item.product.image} 
                                                 alt={item.product.title}
                                                 fill
-                                                className="object-contain p-1"
+                                                className="object-contain"
+                                                sizes="48px"
                                             />
                                         </div>
-
-                                        {/* Info e Controlos */}
                                         <div className="flex-grow min-w-0">
-                                            <p className="font-semibold text-sm text-gray-800 truncate" title={item.product.title}>
-                                                {item.product.title}
-                                            </p>
-                                            <p className="text-blue-600 font-bold text-sm">
-                                                {Number(item.product.price).toFixed(2)} €
-                                            </p>
-                                            
-                                            {/* Controlos de Quantidade */}
-                                            <div className="flex items-center gap-2 mt-2">
-                                                <button 
-                                                    onClick={() => updateQuantity(item.product.id, -1)}
-                                                    className="w-6 h-6 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded text-gray-700 font-bold text-xs transition-colors"
-                                                >
-                                                    -
-                                                </button>
-                                                <span className="text-sm font-medium w-6 text-center">{item.quantity}</span>
-                                                <button 
-                                                    onClick={() => updateQuantity(item.product.id, 1)}
-                                                    className="w-6 h-6 flex items-center justify-center bg-gray-200 hover:bg-gray-300 rounded text-gray-700 font-bold text-xs transition-colors"
-                                                >
-                                                    +
-                                                </button>
-                                                
-                                                <button 
-                                                    onClick={() => removeFromCart(item.product.id)}
-                                                    className="ml-auto text-xs text-red-500 hover:text-red-700 underline"
-                                                >
-                                                    Remover
-                                                </button>
-                                            </div>
+                                            <p className="text-sm font-medium text-gray-800 truncate">{item.product.title}</p>
+                                            <p className="text-xs text-gray-500">{item.quantity} x {Number(item.product.price).toFixed(2)}€</p>
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <button onClick={() => addToCart(item.product)} className="text-green-600 hover:bg-green-100 p-0.5 rounded">+</button>
+                                            <button onClick={() => removeFromCart(item.product.id)} className="text-red-600 hover:bg-red-100 p-0.5 rounded">-</button>
                                         </div>
                                     </div>
-                                ))}
-                            </div>
-                        )}
+                                ))
+                            )}
+                        </div>
 
-                        <div className="mt-4 pt-4 border-t border-gray-100 space-y-4">
-                            <div className="flex items-center gap-2">
-                                <input 
-                                    type="checkbox" 
-                                    id="student"
-                                    checked={isStudent}
-                                    onChange={(e) => setIsStudent(e.target.checked)}
-                                    className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
-                                />
-                                <label htmlFor="student" className="text-gray-700 font-medium cursor-pointer select-none">
-                                    Sou Estudante DEISI
-                                </label>
-                            </div>
-
-                            <input 
-                                type="text" 
-                                placeholder="Cupão de desconto"
-                                value={coupon}
-                                onChange={(e) => setCoupon(e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-
+                        <div className="p-4 bg-gray-50 border-t border-gray-200 space-y-4">
                             <div className="flex justify-between items-center text-xl font-bold text-gray-900">
                                 <span>Total</span>
-                                {/* CORREÇÃO: totalCost agora é garantidamente um número */}
                                 <span>{totalCost.toFixed(2)} €</span>
                             </div>
                             
-                            <button 
-                                onClick={handleBuy}
-                                disabled={cart.length === 0}
-                                className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg transition-colors shadow-sm"
-                            >
+                            <label className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
+                                <input type="checkbox" checked={isStudent} onChange={(e) => setIsStudent(e.target.checked)} className="rounded text-blue-600" />
+                                <span>Sou Estudante</span>
+                            </label>
+                            
+                            <input type="text" placeholder="Cupão" value={coupon} onChange={(e) => setCoupon(e.target.value)} className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm" />
+
+                            <button onClick={handleBuy} disabled={cart.length === 0} className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg transition-colors">
                                 Comprar Agora
                             </button>
 
                             {purchaseMessage && (
-                                <div className={`mt-4 p-3 rounded-lg text-sm font-medium border ${purchaseMessage.startsWith('Sucesso') ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                <div className={`p-3 rounded-lg text-sm font-medium border ${purchaseMessage.startsWith('Sucesso') ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
                                     {purchaseMessage}
                                 </div>
                             )}
