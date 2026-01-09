@@ -6,7 +6,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6 text-center">
       
-      {/* --- TEXTO INTRODUTÓRIO --- */}
+ 
       <h1 className="text-4xl md:text-6xl font-bold text-gray-900 mb-6">
         Bem-vindo à DEISI Shop
       </h1>
@@ -17,13 +17,10 @@ export default function Home() {
       </p>
 
       {/* --- IMAGEM DE LANDING --- */}
-      {/* DICA: Para usares a tua própria imagem:
-          1. Coloca o ficheiro (ex: 'banner.jpg') na pasta 'public'.
-          2. Altera o src para '/banner.jpg'.
-      */}
+  
       <div className="relative w-full max-w-4xl h-[300px] md:h-[500px] mb-12 rounded-3xl overflow-hidden shadow-2xl border-4 border-white">
         <Image 
-          src={myimage} // Exemplo: Imagem da API
+          src={myimage} 
           alt="Imagem de destaque da loja"
           fill
           className="object-cover hover:scale-105 transition-transform duration-700"
@@ -32,7 +29,7 @@ export default function Home() {
         />
       </div>
 
-      {/* --- BOTÃO DE AÇÃO (CTA) --- */}
+      
       <Link href="/produtos">
         <button className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xl py-4 px-12 rounded-full transition-all transform hover:-translate-y-1 hover:shadow-xl shadow-blue-200">
           Começar as Compras 🛒

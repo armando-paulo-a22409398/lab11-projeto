@@ -14,7 +14,7 @@ export default function ProdutosPage() {
     // Buscar produtos à API
     const { data, error, isLoading } = useSWR<Produto[]>('https://deisishop.pythonanywhere.com/products', fetcher);
     
-    // 2. USAR O ESTADO GLOBAL (Isto resolve o teu problema!)
+    
     // Em vez de useState local, lemos diretamente do Cérebro da App
     const { cart, addToCart, removeFromCart, totalCost, buy } = useCart();
 
@@ -115,7 +115,7 @@ export default function ProdutosPage() {
                     </div>
                 </div>
 
-                {/* --- SIDEBAR CARRINHO (Sincronizado com Contexto) --- */}
+                {/* --- SIDEBAR CARRINHO  --- */}
                 <aside className="w-full lg:w-96 flex-shrink-0">
                     <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden sticky top-4">
                         <div className="bg-gray-50 p-4 border-b border-gray-100 flex justify-between items-center">
